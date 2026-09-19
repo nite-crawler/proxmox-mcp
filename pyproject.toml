@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "proxmox-ve-mcp"
+version = "0.1.0"
+description = "A portable, read-only-by-default Model Context Protocol server for Proxmox VE"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Proxmox MCP contributors"}]
+keywords = ["proxmox", "mcp", "claude", "codex", "virtualization"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: AsyncIO",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: System :: Systems Administration",
+  "Typing :: Typed",
+]
+dependencies = ["mcp>=1.30,<2", "httpx>=0.28.1,<1", "pydantic-settings>=2.7,<3"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10", "pytest-asyncio>=1,<2", "pytest-cov>=6,<8",
+  "ruff>=0.16,<1", "mypy>=1.15,<3", "build>=1.2,<2", "pip-audit>=2.9,<3",
+]
+
+[project.scripts]
+proxmox-mcp = "proxmox_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/nite-crawler/proxmox-mcp"
+Issues = "https://github.com/nite-crawler/proxmox-mcp/issues"
+Source = "https://github.com/nite-crawler/proxmox-mcp"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/proxmox_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--strict-markers --cov=proxmox_mcp --cov-report=term-missing --cov-fail-under=90"
+
+[tool.coverage.run]
+branch = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]

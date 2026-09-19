@@ -1,0 +1,90 @@
+import pytest
+from pydantic import ValidationError
+
+from proxmox_mcp.config import Settings
+
+
+def make_settings(**overrides):
+    return Settings(
+        **{
+            "url": "https://pve.example.test:8006",
+            "token_id": "mcp@pve!test",
+            "token_secret": "test-only-secret",
+            **overrides,
+        }
+    )
+
+
+@pytest.mark.parametrize("suffix", ["", "/", "/api2/json", "/api2/json/"])
+def test_normalize_url(suffix):
+    settings = make_settings(url="https://pve.example.test:8006" + suffix)
+    assert settings.url == "https://pve.example.test:8006/api2/json"
+    assert settings.read_only and settings.verify_ssl and not settings.allow_destructive
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://pve:8006",
+        "https://",
+        "https://user:secret@pve",
+        "https://pve/evil",
+        "https://pve?token=secret",
+        "https://pve/#fragment",
+        "https://pve:99999",
+        "https://pve:notaport",
+        "file:///etc/passwd",
+    ],
+)
+def test_reject_unsafe_urls(url):
+    with pytest.raises(ValidationError):
+        make_settings(url=url)
+
+
+@pytest.mark.parametrize("token_id", ["root", "root@pam", "user@pve!x\r\nX: evil", "u@r!a/b"])
+def test_reject_invalid_token_id(token_id):
+    with pytest.raises(ValidationError):
+        make_settings(token_id=token_id)
+
+
+@pytest.mark.parametrize("secret", ["", "secret\r\nHeader:value", "has space", "é", "\x00", "\x7f"])
+def test_reject_invalid_secret(secret):
+    with pytest.raises(ValidationError):
+        make_settings(token_secret=secret)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"allow_destructive": True},
+        {"ca_bundle": "/tmp/ca.pem", "verify_ssl": False},
+        {"timeout": 0},
+        {"timeout": 301},
+        {"timeout": float("nan")},
+    ],
+)
+def test_invalid_options(options):
+    with pytest.raises(ValidationError):
+        make_settings(**options)
+
+
+def test_secrets_hidden():
+    assert "test-only-secret" not in repr(make_settings())
+    with pytest.raises(ValidationError) as exc:
+        make_settings(token_secret="SECRET\n")
+    assert "SECRET" not in str(exc.value)
+
+
+def test_env_file_explicit_and_environment_wins(tmp_path, monkeypatch):
+    config = tmp_path / ".env"
+    config.write_text(
+        "PROXMOX_URL=https://pve.example.test:8006\n"
+        "PROXMOX_TOKEN_ID=mcp@pve!test\nPROXMOX_TOKEN_SECRET=test-only\n"
+        "PROXMOX_READ_ONLY=false\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValidationError):
+        Settings()
+    assert not Settings(_env_file=config).read_only
+    monkeypatch.setenv("PROXMOX_READ_ONLY", "true")
+    assert Settings(_env_file=config).read_only

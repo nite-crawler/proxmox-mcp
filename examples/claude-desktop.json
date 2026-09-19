@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "proxmox": {
+      "command": "/absolute/path/proxmox-mcp/.venv/bin/proxmox-mcp",
+      "args": ["--env-file", "/absolute/path/proxmox-mcp/.env"]
+    }
+  }
+}
