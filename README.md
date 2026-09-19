@@ -240,6 +240,8 @@ docker run --rm -i --env-file .env proxmox-mcp
 ```
 
 Use `-i`, not `-t`, to preserve stdio framing. The image runs as a non-root user.
+The final image excludes pip and its bootstrap files; update dependencies by
+rebuilding the image, not by installing packages inside a running container.
 If using a CA bundle, mount it read-only and point `PROXMOX_CA_BUNDLE` at its
 container path. Host loopback addresses and paths are not automatically available
 inside containers. HTTP inside Docker is not exposed by this image.

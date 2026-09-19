@@ -11,6 +11,8 @@
   and concurrency across sessions. Reject compression and release slots on failure.
 - Add hashed runtime/development/build locks, digest-pinned Docker bases,
   automated dependency updates, and scheduled OS/Python container scanning.
+- Remove unused Python package installers and their vendored dependencies from
+  the runtime container, with a CI check preventing their reintroduction.
 - Breaking defaults: HTTP needs `PROXMOX_HTTP_TOKEN`; task logs are hidden;
   read responses omit fields outside allowlists. See README for migration.
 

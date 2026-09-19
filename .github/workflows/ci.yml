@@ -60,6 +60,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -t proxmox-mcp:test .
       - run: docker run --rm proxmox-mcp:test --version
+      - name: Verify runtime image has no Python package installers
+        run: |
+          for interpreter in /opt/venv/bin/python /usr/local/bin/python; do
+            docker run --rm --entrypoint "$interpreter" proxmox-mcp:test -c \
+              'import importlib.util; assert all(importlib.util.find_spec(name) is None for name in ("pip", "ensurepip", "setuptools"))'
+          done
       - name: Report all container OS and Python vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
