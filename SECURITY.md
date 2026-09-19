@@ -1,7 +1,8 @@
 # Security policy
 
-Security fixes target the latest release on `main`. Version 0.1.x is an initial
-release and has not undergone an independent security audit.
+Security fixes target the latest release on `main` (currently 0.2.x). Upgrade
+0.1.x deployments for HTTP authentication, output minimization, and resource
+limits. This project has not undergone an independent security audit.
 
 Report suspected vulnerabilities through
 [GitHub private vulnerability reporting](https://github.com/nite-crawler/proxmox-mcp/security/advisories/new).

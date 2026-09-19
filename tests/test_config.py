@@ -61,6 +61,17 @@ def test_reject_invalid_secret(secret):
         {"timeout": 0},
         {"timeout": 301},
         {"timeout": float("nan")},
+        {"operation_timeout": 0},
+        {"operation_timeout": float("inf")},
+        {"max_response_bytes": 1023},
+        {"max_request_bytes": 0},
+        {"max_concurrent_requests": 0},
+        {"max_concurrent_requests": 65},
+        {"http_token": "short"},
+        {"http_token": "a" * 32 + "\r\n"},
+        {"http_token": "a" * 32, "token_secret": "a" * 32},
+        {"output_fields": {"unknown": ["name"]}},
+        {"output_fields": {"guest_config": ["*"]}},
     ],
 )
 def test_invalid_options(options):
@@ -88,3 +99,12 @@ def test_env_file_explicit_and_environment_wins(tmp_path, monkeypatch):
     assert not Settings(_env_file=config).read_only
     monkeypatch.setenv("PROXMOX_READ_ONLY", "true")
     assert Settings(_env_file=config).read_only
+
+
+def test_output_policy_from_environment(monkeypatch):
+    monkeypatch.setenv("PROXMOX_OUTPUT_FIELDS", '{"guest_config":["name","cores"]}')
+    monkeypatch.setenv("PROXMOX_ALLOW_RAW_CONFIG", "true")
+    settings = make_settings()
+    assert settings.output_fields == {"guest_config": ("name", "cores")}
+    assert settings.allow_raw_config
+    assert not settings.allow_task_logs

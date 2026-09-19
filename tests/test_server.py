@@ -23,7 +23,6 @@ READ_TOOLS = {
     "list_snapshots",
     "list_tasks",
     "get_task_status",
-    "get_task_log",
     "get_next_vmid",
 }
 WRITE_TOOLS = {
@@ -102,6 +101,9 @@ async def test_protocol_discovery_and_gates(settings, read_only, destructive, ex
     ],
 )
 async def test_read_tools_over_protocol(settings, tool, args, path, query):
+    if tool == "get_task_log":
+        settings = settings.model_copy(update={"allow_task_logs": True})
+
     def handler(request):
         assert request.method == "GET"
         assert request.url.path == "/api2/json" + path
@@ -114,7 +116,8 @@ async def test_read_tools_over_protocol(settings, tool, args, path, query):
     ) as session:
         result = await session.call_tool(tool, args)
         assert not result.isError
-        assert result.structuredContent == {"data": {"test": "result"}}
+        expected = {"test": "result"} if tool in {"get_next_vmid", "get_task_log"} else {}
+        assert result.structuredContent == {"data": expected}
 
 
 @pytest.mark.parametrize("guest_type", ["qemu", "lxc"])
@@ -266,6 +269,4 @@ async def test_configuration_redaction(settings):
         result = await session.call_tool("get_guest_config", GUEST)
         assert result.structuredContent["data"] == {
             "name": "guest",
-            "cipassword": "[REDACTED]",
-            "password": "[REDACTED]",
         }

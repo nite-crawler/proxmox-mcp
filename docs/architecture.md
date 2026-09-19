@@ -18,7 +18,14 @@ network request. Task path segments are URL encoded. The client sends GET
 parameters in the query string and write parameters as form data; Python booleans
 become Proxmox's numeric 0/1 values. QEMU/LXC differences are explicit at each call.
 
-The result shape is consistently `{"data": ...}`. This supports both MCP
+`SecureMCP` installs a pure ASGI HTTP guard that verifies the shared bearer token
+and enforces HTTP admission/deadlines before SDK request handling. stdio remains
+OS/process-isolated. A separate tool-call limiter is shared by all SDK lifespans
+of one server. API responses are streamed under a byte cap and total deadline.
+
+The result shape is consistently `{"data": ...}`. Read records are selected
+through per-view field allowlists and recursively redacted. Raw config and logs
+are independently opt-in. This supports both MCP
 structured content and the SDK's text representation for older clients. API
 errors are sanitized and translated to MCP tool errors. The server returns task
 IDs immediately instead of holding connections open while jobs run.
@@ -32,6 +39,7 @@ declaring support for a particular PVE release.
 
 The first release uses the maintained MCP SDK 1.x API, bounded below at the tested
 1.30 version and below 2.0 to avoid silent API migration. Dependency ranges allow
-compatible security updates. CI checks current resolution; users who need exact
-deployment reproducibility should capture their resolved dependencies in their
-own deployment lockfile or pin the built container digest.
+compatible security updates when maintainers refresh `uv.lock`. CI and Docker
+use hashed pip exports for reproducible resolution, including the build backend.
+CI verifies exports against the lock, and Docker's base image is digest-pinned.
+Vulnerability scans cover both Python packages and the final image's OS packages.

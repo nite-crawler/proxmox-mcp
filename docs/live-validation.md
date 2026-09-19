@@ -6,9 +6,12 @@ writes on important workloads, validate an isolated lab and record PVE, Python,
 MCP host, and server versions.
 
 1. Create a dedicated audit-only user/token and trusted TLS configuration.
-2. Connect the MCP host. Verify initialization and exactly 15 read-only tools.
+2. Connect the MCP host. Verify initialization and exactly 14 default read-only tools.
+   For HTTP, verify missing/wrong bearer tokens return 401 and a valid token connects.
 3. Compare nodes, guests, storage, status, and snapshots with the PVE web UI.
-4. Check a task's status and paginated log against the UI.
+4. Check a task's status against the UI. Enable task logs explicitly if needed,
+   restart, and compare a paginated log. Verify config/description fields are
+   omitted unless the operator permits them.
 5. Confirm a token without permission receives a sanitized error or restricted inventory.
 6. In a disposable lab, grant narrowly scoped write ACLs, enable writes, and restart.
 7. Clone a disposable QEMU template and an LXC template. Poll each returned UPID

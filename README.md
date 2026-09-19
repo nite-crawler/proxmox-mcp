@@ -18,7 +18,7 @@ HTTP are supported through the official MCP Python SDK.
 
 ## Project status
 
-Initial community release, version 0.1.0. Automated tests exercise the API adapter,
+Community release, version 0.2.0. Automated tests exercise the API adapter,
 MCP discovery and tool calls, a real stdio subprocess, and Streamable HTTP. Proxmox
 API responses are mocked: **a live Proxmox cluster has not yet been validated**.
 Client examples use standard MCP configuration; individual desktop apps have not
@@ -36,12 +36,13 @@ Install from source (no PyPI publication is assumed):
 git clone https://github.com/nite-crawler/proxmox-mcp.git
 cd proxmox-mcp
 python3 -m venv .venv
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements.lock -r requirements-build.lock
+.venv/bin/python -m pip install --no-deps --no-build-isolation .
 cp .env.example .env
 chmod 600 .env
 ```
 
-On Windows, use `py -m venv .venv` and `.venv\Scripts\python.exe -m pip install .`.
+On Windows, use `py -m venv .venv` and `.venv\Scripts\python.exe` in the pip commands.
 Set restrictive file permissions appropriate to your OS. Edit `.env` locally:
 
 ```dotenv
@@ -133,25 +134,39 @@ tools, and calls `list_nodes`:
 
 ### Streamable HTTP
 
+Generate a separate bearer token locally, store it as `PROXMOX_HTTP_TOKEN` in your
+protected env file, and configure your MCP client to send
+`Authorization: Bearer <that-token>`. Never reuse the Proxmox API token secret.
+Generate a token with:
+
+```sh
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
 ```sh
 .venv/bin/proxmox-mcp --env-file .env --transport streamable-http --port 8000
 ```
 
 Connect your MCP client to `http://127.0.0.1:8000/mcp`. HTTP is deliberately bound
-to IPv4 loopback and uses SDK Host/Origin validation. It has **no user authentication**;
-processes on the same machine can access it. Use stdio for client isolation. Do
-not expose it through a public reverse proxy or shared tunnel. A remote deployment
-needs a separate authenticated MCP gateway and its own threat model; that setup
-is outside this release. Legacy HTTP+SSE transport is not provided.
+to IPv4 loopback and uses SDK Host/Origin validation. Every HTTP method requires
+one valid bearer header; missing/invalid credentials return 401 before MCP processing.
+HTTP startup fails without a token. The token is a shared credential, not OAuth
+or per-user authorization: all authenticated clients share the configured Proxmox
+identity. Rotate it by replacing the env value, restarting, and updating clients.
+Do not expose the plain HTTP endpoint remotely. A remote deployment needs TLS,
+appropriate client identity/authorization, and a separate gateway threat model.
+Legacy HTTP+SSE transport is not provided. stdio does not require an HTTP token.
 
 ## Available tools
 
-Every successful result has a `data` field containing the Proxmox response data.
+Every successful result has a `data` field. Read results are filtered through
+operator-configurable field allowlists; omitted fields must not be treated as unset.
 Failures become MCP tool errors (`isError: true`), without raw upstream bodies.
 
 | Mode | Tools |
 | --- | --- |
-| Read-only (default, 15 tools) | `get_version`, `get_cluster_status`, `list_resources`, `list_nodes`, `get_node_status`, `list_storage`, `list_storage_content`, `list_guests`, `get_guest_status`, `get_guest_config`, `list_snapshots`, `list_tasks`, `get_task_status`, `get_task_log`, `get_next_vmid` |
+| Read-only (default, 14 tools) | `get_version`, `get_cluster_status`, `list_resources`, `list_nodes`, `get_node_status`, `list_storage`, `list_storage_content`, `list_guests`, `get_guest_status`, `get_guest_config`, `list_snapshots`, `list_tasks`, `get_task_status`, `get_next_vmid` |
+| Sensitive-output opt-ins (independent) | `get_guest_config_raw` with `PROXMOX_ALLOW_RAW_CONFIG=true`; `get_task_log` with `PROXMOX_ALLOW_TASK_LOGS=true` |
 | Write-enabled (7 additional tools) | `start_guest`, `shutdown_guest`, `reboot_guest`, `clone_guest`, `create_snapshot`, `backup_guest`, `migrate_guest` |
 | Destructive opt-in (3 additional tools) | `stop_guest`, `delete_snapshot`, `rollback_snapshot` |
 
@@ -170,7 +185,7 @@ configuration updates, or VM creation from scratch.
 Writes returning a `UPID:...` string are asynchronous submissions, **not successful
 completion**. Call `get_task_status` with the source node and that UPID until
 `status` is `stopped`, then check `exitstatus == "OK"`. Use `get_task_log` for
-diagnostics. A timeout does not prove a write failed; check `list_tasks` before
+diagnostics when task-log access is enabled. A timeout does not prove a write failed; check `list_tasks` before
 retrying. The server intentionally never retries writes automatically.
 
 Example requests to your assistant:
@@ -193,13 +208,29 @@ The server never implicitly loads a `.env` from the working directory.
 | `PROXMOX_VERIFY_SSL` | `true` | Certificate and hostname verification |
 | `PROXMOX_CA_BUNDLE` | System trust | PEM CA bundle path |
 | `PROXMOX_TIMEOUT` | `30` | HTTP timeout in seconds, greater than 0 and at most 300 |
+| `PROXMOX_OPERATION_TIMEOUT` | `30` | Total operation/HTTP-request deadline in seconds, including slow response streams (0–300, exclusive of 0) |
+| `PROXMOX_MAX_RESPONSE_BYTES` | `4194304` | Maximum upstream response size; enforced while streaming (1 KiB–128 MiB) |
+| `PROXMOX_MAX_REQUEST_BYTES` | `1048576` | Maximum MCP HTTP request body (1 KiB–4 MiB) |
+| `PROXMOX_MAX_CONCURRENT_REQUESTS` | `8` | Concurrent HTTP requests and concurrent tool API calls per server instance (1–64); excess work is rejected |
+| `PROXMOX_HTTP_TOKEN` | Unset | Required for HTTP; separate random bearer token, 32–256 URL-safe characters |
+| `PROXMOX_ALLOW_RAW_CONFIG` | `false` | Expose full guest configuration tool, with known secret fields redacted |
+| `PROXMOX_ALLOW_TASK_LOGS` | `false` | Expose task-log tool; logs may contain arbitrary sensitive text |
+| `PROXMOX_OUTPUT_FIELDS` | Built-in allowlists | JSON object replacing selected output views' field lists; see [output policy](docs/security.md#output-policy) |
 | `PROXMOX_READ_ONLY` | `true` | Omit write tools and block writes in the API client |
 | `PROXMOX_ALLOW_DESTRUCTIVE` | `false` | Enable force-stop, snapshot delete and rollback; requires writes enabled |
 
 Ambient HTTP proxy variables are ignored to keep API tokens on the configured
 direct connection. Redirects are not followed. Logs go to stderr so stdout remains
-valid MCP traffic. Configurations and descriptions can contain sensitive data even
-with password fields redacted; only connect clients you trust with your inventory.
+valid MCP traffic. Freeform descriptions/notes and unlisted fields are omitted by
+default. Known secret keys and configured credential values are redacted recursively.
+Allowlisted names, statuses, and opted-in raw data can still contain arbitrary
+sensitive text; only connect clients you trust with your inventory.
+
+Responses exceeding the byte limit fail without returning partial data. Compressed
+upstream responses are rejected (the client requests `Accept-Encoding: identity`)
+to avoid decompression-based memory exhaustion. Busy HTTP requests return 429;
+busy stdio tool calls return a tool error. Limits are shared across sessions of
+one server instance; separately launched processes have separate budgets.
 
 ## Docker (stdio)
 
@@ -216,19 +247,25 @@ inside containers. HTTP inside Docker is not exposed by this image.
 ## Development
 
 ```sh
-.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.lock
+.venv/bin/python -m pip install --no-deps --no-build-isolation -e .
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
 .venv/bin/pytest
-.venv/bin/python -m build
-.venv/bin/pip-audit
+.venv/bin/python -m build --no-isolation
+.venv/bin/pip-audit --require-hashes -r requirements.lock
 ```
 
 Tests use synthetic credentials and mocked Proxmox transport; they never require
 or target a live cluster. Coverage includes branches and enforces a 90% minimum.
 CI runs the test suite on Python 3.11–3.14 and checks packaging, lint, types, and
-dependency vulnerabilities. The SDK dependency is intentionally bounded to the
+dependency vulnerabilities. Container CI reports all OS/Python vulnerabilities and
+blocks HIGH/CRITICAL findings with available fixes; unfixed findings remain in the
+downloadable report for review. Scheduled weekly CI refreshes the scans.
+`uv.lock` and hashed exports pin runtime, development, and build dependencies;
+the Docker base is digest-pinned and Dependabot proposes weekly updates.
+See [lockfile maintenance](CONTRIBUTING.md#dependency-updates). The SDK is bounded to the
 tested 1.x maintenance line; upgrading to 2.x requires a separate compatibility review.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+from pydantic import SecretStr
 
 from proxmox_mcp.cli import main
 
@@ -32,6 +33,7 @@ def test_cli_does_not_leak_invalid_secret(monkeypatch, capsys):
 
 @pytest.mark.parametrize("transport", ["stdio", "streamable-http"])
 def test_cli_runs_selected_transport(settings, transport):
+    settings = settings.model_copy(update={"http_token": SecretStr("a" * 43)})
     with (
         patch("proxmox_mcp.cli.Settings", return_value=settings),
         patch("proxmox_mcp.cli.create_server") as create,
@@ -63,3 +65,10 @@ def test_cli_ca_failure(settings, capsys):
     error = capsys.readouterr().err
     assert "PROXMOX_CA_BUNDLE" in error
     assert "private path" not in error
+
+
+def test_http_cli_requires_separate_token(settings, capsys):
+    with patch("proxmox_mcp.cli.Settings", return_value=settings), pytest.raises(SystemExit) as exc:
+        main(["--transport", "streamable-http"])
+    assert exc.value.code == 2
+    assert "PROXMOX_HTTP_TOKEN" in capsys.readouterr().err

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "proxmox-ve-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "A portable, read-only-by-default Model Context Protocol server for Proxmox VE"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,16 +23,25 @@ classifiers = [
   "Topic :: System :: Systems Administration",
   "Typing :: Typed",
 ]
-dependencies = ["mcp>=1.30,<2", "httpx>=0.28.1,<1", "pydantic-settings>=2.7,<3"]
+dependencies = [
+  "mcp>=1.30,<2", "httpx>=0.28.1,<1", "pydantic-settings>=2.7,<3",
+  "pydantic>=2.12,<3", "anyio>=4.5,<5", "starlette>=0.48,<2",
+]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8,<10", "pytest-asyncio>=1,<2", "pytest-cov>=6,<8",
   "ruff>=0.16,<1", "mypy>=1.15,<3", "build>=1.2,<2", "pip-audit>=2.9,<3",
+  "hatchling>=1.27,<2",
+  "uv==0.12.17",
+  "editables>=0.5,<1",
 ]
 
 [project.scripts]
 proxmox-mcp = "proxmox_mcp.cli:main"
+
+[dependency-groups]
+build = ["hatchling>=1.27,<2", "build>=1.2,<2"]
 
 [project.urls]
 Homepage = "https://github.com/nite-crawler/proxmox-mcp"

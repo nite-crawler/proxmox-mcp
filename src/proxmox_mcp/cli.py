@@ -28,6 +28,10 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.WARNING)
     try:
         settings = Settings(_env_file=args.env_file)  # type: ignore[call-arg]
+        if args.transport == "streamable-http" and settings.http_token is None:
+            parser.error(
+                "Streamable HTTP requires PROXMOX_HTTP_TOKEN (a separate random bearer token)"
+            )
         if settings.ca_bundle:
             ssl.create_default_context(cafile=str(settings.ca_bundle))
         server = create_server(settings)
