@@ -23,7 +23,7 @@ classifiers = [
   "Topic :: System :: Systems Administration",
   "Typing :: Typed",
 ]
-dependencies = ["mcp>=1.30,<2", "httpx>=0.28.1,<1", "pydantic-settings>=2.7,<3"]
+dependencies = ["mcp>=2.2.0,<3", "httpx>=0.28.1,<1", "pydantic-settings>=2.7,<3"]
 
 [project.optional-dependencies]
 dev = [
