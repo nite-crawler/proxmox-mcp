@@ -107,7 +107,8 @@ def redact(value: Any, secrets: tuple[str, ...], depth: int = 0) -> Any:
     if isinstance(value, dict):
         return {
             key: "[REDACTED]"
-            if any(
+            if key.lower() in {"args", "sshkeys"}
+            or any(
                 part in key.lower()
                 for part in (
                     "password",

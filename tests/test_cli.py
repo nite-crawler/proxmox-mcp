@@ -6,6 +6,14 @@ from pydantic import SecretStr
 from proxmox_mcp.cli import main
 
 
+@pytest.fixture(autouse=True)
+def preserve_pytest_logging():
+    # The real CLI deliberately replaces root handlers. Exercise that behavior
+    # in a subprocess below, not against pytest's own capture handlers.
+    with patch("proxmox_mcp.cli.logging.basicConfig"):
+        yield
+
+
 @pytest.mark.parametrize("args", [["--version"], ["--help"]])
 def test_cli_help(args, capsys):
     with pytest.raises(SystemExit) as exc:
@@ -72,3 +80,21 @@ def test_http_cli_requires_separate_token(settings, capsys):
         main(["--transport", "streamable-http"])
     assert exc.value.code == 2
     assert "PROXMOX_HTTP_TOKEN" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("stage", ["create", "run"])
+def test_unexpected_cli_errors_are_sanitized(settings, capsys, stage):
+    with (
+        patch("proxmox_mcp.cli.Settings", return_value=settings),
+        patch("proxmox_mcp.cli.create_server") as create,
+    ):
+        if stage == "create":
+            create.side_effect = RuntimeError("SENSITIVE")
+        else:
+            create.return_value.run.side_effect = RuntimeError("SENSITIVE")
+        with pytest.raises(SystemExit) as exc:
+            main([])
+    assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert "SENSITIVE" not in captured.err

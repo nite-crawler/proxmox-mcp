@@ -55,6 +55,10 @@ storage capabilities vary. This server never modifies user/token permissions.
 `PROXMOX_ALLOW_DESTRUCTIVE` specifically gates force-stop and snapshot
 delete/rollback. Ordinary write tools can still interrupt services, consume disk
 space, or fail midway. Operators should review proposed actions in their MCP host.
+Enable destructive mode only with Proxmox ACLs scoped to guests whose disruption
+or loss you explicitly accept. Keep critical guests outside that token's scope.
+Model instructions and approval prompts do not enforce this boundary; Proxmox
+permissions do. The token holder can invoke every exposed tool without an LLM.
 The API client deliberately avoids automatic retries so a timeout cannot silently
 submit duplicate clones, backups, or other writes.
 
@@ -91,9 +95,38 @@ through tool arguments. Restart after configuration changes.
 
 Known secret-key fragments (password, passwd, secret, token, credential,
 authorization, private_key) are recursively redacted. Literal configured Proxmox
-and HTTP credentials are removed from string values as well. Other secrets placed
-in descriptions, arbitrary fields, names, or log lines may remain when those
+credentials and HTTP credentials are removed from string values as well.
+Exact keys `args` (arbitrary QEMU arguments) and `sshkeys` (guest access information)
+are also redacted, case-insensitively, including raw configuration and explicitly
+allowlisted fields. SSH public keys are not private keys, but disclose access
+relationships. Other secrets placed in descriptions, arbitrary fields, names,
+or log lines may remain when those
 outputs are permitted. Redaction is not a general-purpose secret detector.
+
+## Audit records and error handling
+
+The CLI emits write audit records to stderr at WARNING level, with timestamps,
+JSON-escaped fields, and a per-request correlation ID. `--log-level INFO` adds
+routine diagnostics; the default WARNING level still records writes. stdout is
+reserved for the MCP protocol. The CLI explicitly configures its logging handlers;
+embedded users of `create_server` must configure and retain their own logs.
+
+After local write/path guards permit an API attempt, records include its method
+and endpoint, response status if headers arrive, and elapsed time. `api_accepted`
+means a successful API response was received and decoded, not that a background
+task completed. `outcome_unknown` means no confirmed acceptance: inspect any
+recorded HTTP status and Proxmox task history before retrying. Timeouts, network
+errors, and cancellation all produce this conservative outcome. A process crash
+may leave only an attempt record. Calls blocked before the API client are not
+recorded by this write audit.
+
+Parameters, response bodies, raw exception messages, and configured credentials
+are excluded from audit records. Endpoints still reveal node/guest/snapshot names;
+restrict log access. Capture stderr in your MCP host, service manager, or log
+collector and set retention explicitly. These are operational records, not a
+durable, tamper-proof audit store, and the shared Proxmox identity does not identify
+individual MCP users. Unexpected tool, initialization, and cleanup exceptions are
+replaced with generic messages; cancellation is propagated, not swallowed.
 
 ## Resource limits
 

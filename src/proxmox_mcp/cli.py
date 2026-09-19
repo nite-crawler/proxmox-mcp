@@ -20,12 +20,22 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
     parser.add_argument("--port", type=int, default=8000, help="Loopback HTTP port (default: 8000)")
+    parser.add_argument(
+        "--log-level",
+        choices=("INFO", "WARNING"),
+        default="WARNING",
+        help="stderr verbosity; write audit events are always WARNING",
+    )
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("port must be between 1 and 65535")
     if args.env_file and not args.env_file.is_file():
         parser.error("the specified env file does not exist")
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(
+        level=args.log_level,
+        force=True,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     try:
         settings = Settings(_env_file=args.env_file)  # type: ignore[call-arg]
         if args.transport == "streamable-http" and settings.http_token is None:
@@ -43,7 +53,12 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(f"invalid Proxmox configuration: {details}")
     except (OSError, ValueError):
         parser.error("cannot load TLS configuration; check PROXMOX_CA_BUNDLE")
+    except Exception:
+        parser.error("cannot initialize server; check configuration")
     if not settings.verify_ssl:
         logging.warning("TLS verification is disabled; use only with isolated test infrastructure")
     server.settings.port = args.port
-    server.run(transport=args.transport)
+    try:
+        server.run(transport=args.transport)
+    except Exception:
+        parser.error("server failed; check configuration and tasks before retrying writes")

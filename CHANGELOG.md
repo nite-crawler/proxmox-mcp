@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 — 2026-09-19
+
+- Record write attempts, HTTP response status, and acceptance/unknown outcomes
+  to stderr at the default log level, with correlation IDs and elapsed time.
+- Add explicit CLI logging configuration and `--log-level INFO|WARNING`.
+- Redact QEMU `args` and guest `sshkeys` even in raw or custom-allowlisted output.
+- Sanitize unexpected tool, initialization, and cleanup errors without swallowing
+  cancellation; add regression tests for error leakage and default CLI auditing.
+- Clarify log retention limits and require destructive-mode ACLs to exclude guests
+  whose disruption or loss the operator cannot accept.
+
 ## 0.2.0 — 2026-09-19
 
 - Require a separate bearer token for local HTTP, including startup validation,

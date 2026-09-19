@@ -3,7 +3,9 @@
 import json
 import logging
 import ssl
+import time
 from typing import Any, Literal
+from uuid import uuid4
 
 import anyio
 import httpx
@@ -57,6 +59,45 @@ class ProxmoxClient:
         # Tool paths are constructed internally; never expose a raw API proxy.
         if not path.startswith("/") or any(x in path for x in ("..", "//", "?", "#", "\\")):
             raise ProxmoxError("Invalid API path.")
+        audit_id = uuid4().hex if method != "GET" else None
+        started = time.monotonic()
+        outcome = "outcome_unknown"
+        if audit_id:
+            self._audit(audit_id, "attempt", method=method, path=path)
+        try:
+            result = await self._request(method, path, params, audit_id)
+            outcome = "api_accepted"
+            return result
+        finally:
+            # Includes cancellation and errors before response headers arrive.
+            # Acceptance is not completion of an asynchronous Proxmox task.
+            if audit_id:
+                self._audit(
+                    audit_id,
+                    outcome,
+                    duration_ms=round((time.monotonic() - started) * 1000),
+                )
+
+    def _audit(self, audit_id: str, event: str, **fields: Any) -> None:
+        record = {"request_id": audit_id, "event": event, **fields}
+        secrets = [self.settings.token_secret.get_secret_value()]
+        if self.settings.http_token:
+            secrets.append(self.settings.http_token.get_secret_value())
+        for key, value in record.items():
+            if isinstance(value, str):
+                for secret in secrets:
+                    value = value.replace(secret, "[REDACTED]")
+                record[key] = value
+        # JSON escapes control characters; never include params, bodies, or errors.
+        logger.warning("Proxmox audit %s", json.dumps(record, ensure_ascii=True))
+
+    async def _request(
+        self,
+        method: Literal["GET", "POST", "PUT", "DELETE"],
+        path: str,
+        params: Parameters | None,
+        audit_id: str | None,
+    ) -> Any:
         values = {
             k: int(v) if isinstance(v, bool) else v
             for k, v in (params or {}).items()
@@ -70,7 +111,10 @@ class ProxmoxClient:
                     params=values if method == "GET" else None,
                     data=values if method != "GET" else None,
                 ) as response:
-                    logger.info("Proxmox %s %s -> %s", method, path, response.status_code)
+                    if audit_id:
+                        self._audit(audit_id, "response_headers", status=response.status_code)
+                    else:
+                        logger.info("Proxmox GET response status=%s", response.status_code)
                     self._check_status(response.status_code)
                     if response.headers.get("content-encoding", "identity").lower() != "identity":
                         raise ProxmoxError("Proxmox must return an uncompressed response.")

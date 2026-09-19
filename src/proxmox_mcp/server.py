@@ -1,5 +1,6 @@
 """Typed, discoverable MCP tools. The SDK owns protocol and transport details."""
 
+import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal
@@ -15,6 +16,8 @@ from proxmox_mcp.client import ProxmoxClient, ProxmoxError
 from proxmox_mcp.config import Settings
 from proxmox_mcp.http import SecureMCP
 from proxmox_mcp.output import DEFAULT_FIELDS, filter_output, redact
+
+logger = logging.getLogger(__name__)
 
 Name = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")]
 Snapshot = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")]
@@ -41,11 +44,21 @@ def create_server(
     async def lifespan(_: FastMCP) -> AsyncIterator[ProxmoxClient]:
         # A stateless HTTP request has its own lifespan. Never share a client
         # that another request can close; stdio retains one pool for its session.
-        api = client_factory() if client_factory else ProxmoxClient(settings)
+        try:
+            api = client_factory() if client_factory else ProxmoxClient(settings)
+        except Exception:
+            logger.error("Proxmox client initialization failed; check server configuration")
+            raise RuntimeError(
+                "Cannot initialize Proxmox client; check server configuration."
+            ) from None
         try:
             yield api
         finally:
-            await api.close()
+            try:
+                await api.close()
+            except Exception:
+                logger.error("Proxmox client cleanup failed")
+                raise RuntimeError("Proxmox client cleanup failed.") from None
 
     mcp = SecureMCP(
         settings,
@@ -71,12 +84,12 @@ def create_server(
         view: str | None = None,
         **params: Any,
     ) -> dict[str, Any]:
-        api = mcp.get_context().request_context.lifespan_context
         try:
             limiter.acquire_nowait()
         except anyio.WouldBlock:
             raise ToolError("Server busy; retry later. No Proxmox request was submitted.") from None
         try:
+            api = mcp.get_context().request_context.lifespan_context
             with anyio.fail_after(settings.operation_timeout):
                 data = await api.request(method, path, params)
                 return {
@@ -90,6 +103,12 @@ def create_server(
             ) from None
         except ProxmoxError as exc:
             raise ToolError(str(exc)) from None
+        except Exception:
+            logger.error("Unexpected Proxmox tool failure; details suppressed")
+            raise ToolError(
+                "Unexpected server error; check server configuration "
+                "and tasks before retrying writes."
+            ) from None
         finally:
             limiter.release()
 

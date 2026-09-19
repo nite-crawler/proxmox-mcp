@@ -50,7 +50,8 @@ async def test_sensitive_tools_have_independent_operator_gates(settings, raw, lo
                 "cores": 4,
                 "description": "operator opted in",
                 "cipassword": "[REDACTED]",
-                "args": "private value",
+                "args": "[REDACTED]",
+                "sshkeys": "[REDACTED]",
                 "extra": {"api_token": "[REDACTED]"},
             },
         ),
@@ -64,6 +65,7 @@ async def test_config_minimization_and_raw_redaction(settings, tool, options, ex
         "description": "operator opted in",
         "cipassword": "SECRET",
         "args": "private value",
+        "sshkeys": "public key access information",
         "extra": {"api_token": "SECRET"},
     }
     api = ProxmoxClient(
@@ -119,3 +121,9 @@ def test_nested_secrets_and_literal_credentials_redacted():
     ) == {"nested": [{"private_key": "[REDACTED]", "text": "contains [REDACTED]"}]}
     assert filter_output("unexpected scalar", ("name",), ()) is None
     assert redact({}, (), depth=33) == "[OMITTED: nesting limit]"
+
+
+@pytest.mark.parametrize("key", ["args", "ARGS", "sshkeys", "SSHKeys"])
+def test_known_sensitive_fields_cannot_be_allowlisted_around_redaction(key):
+    assert filter_output({key: "PRIVATE"}, (key,), ()) == {key: "[REDACTED]"}
+    assert redact({"nested": [{key: "PRIVATE"}]}, ()) == {"nested": [{key: "[REDACTED]"}]}

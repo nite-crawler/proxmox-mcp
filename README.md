@@ -18,7 +18,7 @@ HTTP are supported through the official MCP Python SDK.
 
 ## Project status
 
-Community release, version 0.2.0. Automated tests exercise the API adapter,
+Community release, version 0.2.1. Automated tests exercise the API adapter,
 MCP discovery and tool calls, a real stdio subprocess, and Streamable HTTP. Proxmox
 API responses are mocked: **a live Proxmox cluster has not yet been validated**.
 Client examples use standard MCP configuration; individual desktop apps have not
@@ -225,6 +225,11 @@ valid MCP traffic. Freeform descriptions/notes and unlisted fields are omitted b
 default. Known secret keys and configured credential values are redacted recursively.
 Allowlisted names, statuses, and opted-in raw data can still contain arbitrary
 sensitive text; only connect clients you trust with your inventory.
+
+Write audit events are emitted at WARNING level even with default settings.
+Capture stderr and configure retention in your MCP host or service manager.
+Use `--log-level INFO` for additional diagnostics; see
+[audit semantics and limitations](docs/security.md#audit-records-and-error-handling).
 
 Responses exceeding the byte limit fail without returning partial data. Compressed
 upstream responses are rejected (the client requests `Accept-Encoding: identity`)
