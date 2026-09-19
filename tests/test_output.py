@@ -1,6 +1,6 @@
 import httpx
 import pytest
-from mcp.shared.memory import create_connected_server_and_client_session
+from conftest import mcp_session
 
 from proxmox_mcp.client import ProxmoxClient
 from proxmox_mcp.config import Settings
@@ -18,18 +18,16 @@ async def test_sensitive_tools_have_independent_operator_gates(settings, raw, lo
         pytest.fail("Disabled tool reached Proxmox")
 
     api = ProxmoxClient(settings, transport=httpx.MockTransport(unexpected))
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as client:
+    async with mcp_session(create_server(settings, lambda: api)) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
         assert ("get_guest_config_raw" in names) == raw
         assert ("get_task_log" in names) == logs
         if not raw:
-            assert (await client.call_tool("get_guest_config_raw", GUEST)).isError
+            assert (await client.call_tool("get_guest_config_raw", GUEST)).is_error
         if not logs:
             assert (
                 await client.call_tool("get_task_log", {"node": "pve", "upid": "UPID:pve:task:"})
-            ).isError
+            ).is_error
 
 
 @pytest.mark.parametrize(
@@ -72,12 +70,10 @@ async def test_config_minimization_and_raw_redaction(settings, tool, options, ex
     api = ProxmoxClient(
         settings, transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"data": data}))
     )
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as client:
+    async with mcp_session(create_server(settings, lambda: api)) as client:
         result = await client.call_tool(tool, GUEST)
-        assert not result.isError
-        assert result.structuredContent == {"data": expected}
+        assert not result.is_error
+        assert result.structured_content == {"data": expected}
         assert "SECRET" not in result.content[0].text
 
 
@@ -108,11 +104,9 @@ async def test_freeform_fields_omitted_across_read_tools(settings, tool, args, d
     api = ProxmoxClient(
         settings, transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"data": data}))
     )
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as client:
+    async with mcp_session(create_server(settings, lambda: api)) as client:
         result = await client.call_tool(tool, args)
-        assert result.structuredContent == {"data": expected}
+        assert result.structured_content == {"data": expected}
         assert "PRIVATE" not in result.content[0].text
 
 
@@ -151,14 +145,12 @@ async def test_required_task_fields_preserved_without_inventing_upstream_values(
             lambda _: httpx.Response(200, json={"data": {**data, "user": "PRIVATE"}})
         ),
     )
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
+    async with mcp_session(create_server(settings, lambda: api)) as session:
         init = await session.initialize()
         assert "success is unverified" in init.instructions
         result = await session.call_tool(
             "get_task_status", {"node": "pve", "upid": "UPID:pve:task:"}
         )
-        assert not result.isError
-        assert result.structuredContent == {"data": data}
+        assert not result.is_error
+        assert result.structured_content == {"data": data}
         assert "PRIVATE" not in result.content[0].text

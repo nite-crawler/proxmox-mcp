@@ -37,6 +37,12 @@ jobs:
       - run: ruff format --check .
       - run: mypy
       - run: pytest
+      - name: Smoke test SDK 1 clients against the SDK 2 CLI
+        if: matrix.python == '3.13'
+        run: |
+          python -m venv .venv-legacy-client
+          .venv-legacy-client/bin/python -m pip install --require-hashes --only-binary=:all: -r tests/fixtures/sdk1-requirements.lock
+          .venv-legacy-client/bin/python tests/compat_sdk1.py --server-python "$(command -v python)"
       - run: python -m build --no-isolation
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: matrix.python == '3.13'

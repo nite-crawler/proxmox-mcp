@@ -4,7 +4,8 @@ import secrets
 from typing import Any
 
 import anyio
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -73,15 +74,28 @@ class HTTPGuard:
             self._limiter.release()
 
 
-class SecureMCP(FastMCP):
+class SecureMCP(MCPServer):
     def __init__(self, security: Settings, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._security = security
 
-    def streamable_http_app(self) -> Starlette:
+    def streamable_http_app(self, **kwargs: Any) -> Starlette:
         if self._security.http_token is None:
             raise ValueError("Streamable HTTP requires PROXMOX_HTTP_TOKEN")
-        app = super().streamable_http_app()
+        # SDK run() forwards transport defaults here. Operator security settings
+        # remain authoritative, for both CLI and embedded ASGI applications.
+        kwargs.update(
+            host="127.0.0.1",
+            stateless_http=True,
+            json_response=True,
+            max_request_body_size=self._security.max_request_bytes,
+            transport_security=TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
+            ),
+        )
+        app = super().streamable_http_app(**kwargs)
         app.add_middleware(
             HTTPGuard,
             token=self._security.http_token.get_secret_value(),

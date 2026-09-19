@@ -3,7 +3,7 @@ import asyncio
 import anyio
 import httpx
 import pytest
-from mcp.shared.memory import create_connected_server_and_client_session
+from conftest import mcp_session
 from starlette.responses import JSONResponse
 
 from proxmox_mcp.client import ProxmoxClient, ProxmoxError
@@ -187,19 +187,19 @@ async def test_tool_concurrency_limit_shared_across_mcp_sessions(settings):
         settings, lambda: ProxmoxClient(settings, transport=httpx.MockTransport(handler))
     )
     async with (
-        create_connected_server_and_client_session(server) as a,
-        create_connected_server_and_client_session(server) as b,
+        mcp_session(server) as a,
+        mcp_session(server) as b,
     ):
         first = asyncio.create_task(a.call_tool("list_nodes", {}))
         try:
             with anyio.fail_after(2):
                 await entered.wait()
             blocked = await b.call_tool("list_nodes", {})
-            assert blocked.isError and "Server busy" in blocked.content[0].text
+            assert blocked.is_error and "Server busy" in blocked.content[0].text
         finally:
             release.set()
-            assert not (await first).isError
-        assert not (await b.call_tool("list_nodes", {})).isError
+            assert not (await first).is_error
+        assert not (await b.call_tool("list_nodes", {})).is_error
 
 
 async def test_tool_deadline_releases_slot(settings):
@@ -216,10 +216,10 @@ async def test_tool_deadline_releases_slot(settings):
     server = create_server(
         settings, lambda: ProxmoxClient(settings, transport=httpx.MockTransport(handler))
     )
-    async with create_connected_server_and_client_session(server) as client:
+    async with mcp_session(server) as client:
         result = await client.call_tool("list_nodes", {})
-        assert result.isError and "deadline exceeded" in result.content[0].text
-        assert not (await client.call_tool("list_nodes", {})).isError
+        assert result.is_error and "deadline exceeded" in result.content[0].text
+        assert not (await client.call_tool("list_nodes", {})).is_error
 
 
 async def test_http_cancelled_request_releases_capacity():

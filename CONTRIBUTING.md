@@ -49,6 +49,12 @@ full report, including unfixed vulnerabilities, before accepting an image update
 The build lock pins the build backend; use `--no-build-isolation`/`--no-isolation`
 so package builds do not silently resolve an unpinned backend.
 
+`tests/fixtures/sdk1-requirements.lock` is a deliberately frozen compatibility
+baseline from the 0.2.2 runtime lock, not a deployment lock. CI installs it in a
+separate environment to verify an SDK 1.30.0 client against the SDK 2 CLI. Do not
+regenerate it from the main SDK 2 dependency graph or install it in the server's
+environment. Any baseline update must keep a v1 client and review its hashes.
+
 ## Community conduct
 
 Be respectful, constructive, and specific. Critique code and ideas, not people.

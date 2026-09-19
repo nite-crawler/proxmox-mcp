@@ -18,7 +18,8 @@ HTTP are supported through the official MCP Python SDK.
 
 ## Project status
 
-Community release, version 0.2.2. Automated tests exercise the API adapter,
+SDK 2 migration candidate, version 0.3.0 (on this branch; not yet released).
+Automated tests exercise the API adapter,
 MCP discovery and tool calls, a real stdio subprocess, and Streamable HTTP. Proxmox
 API responses are mocked: **a live Proxmox cluster has not yet been validated**.
 Client examples use standard MCP configuration; individual desktop apps have not
@@ -272,8 +273,10 @@ blocks HIGH/CRITICAL findings with available fixes; unfixed findings remain in t
 downloadable report for review. Scheduled weekly CI refreshes the scans.
 `uv.lock` and hashed exports pin runtime, development, and build dependencies;
 the Docker base is digest-pinned and Dependabot proposes weekly updates.
-See [lockfile maintenance](CONTRIBUTING.md#dependency-updates). The SDK is bounded to the
-tested 1.x maintenance line; upgrading to 2.x requires a separate compatibility review.
+See [lockfile maintenance](CONTRIBUTING.md#dependency-updates). This branch uses
+the official SDK 2.x API (`mcp>=2.2,<3`). CLI options, tool names, environment
+variables, and JSON result shapes are unchanged. Embedded Python callers must
+use the SDK 2 context and client APIs; see [migration notes](docs/sdk2-migration.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),
 [architecture](docs/architecture.md), and the [live validation checklist](docs/live-validation.md).

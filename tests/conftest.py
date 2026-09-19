@@ -1,8 +1,18 @@
 import os
+from contextlib import asynccontextmanager
 
 import pytest
+from mcp import Client
 
 from proxmox_mcp.config import Settings
+
+
+@asynccontextmanager
+async def mcp_session(server):
+    # Force the legacy handshake and real in-memory JSON-RPC transport, rather
+    # than v2's default direct-dispatch shortcut, to retain protocol coverage.
+    async with Client(server, mode="legacy") as client:
+        yield client.session
 
 
 @pytest.fixture(autouse=True)

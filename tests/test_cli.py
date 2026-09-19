@@ -60,8 +60,12 @@ def test_cli_runs_selected_transport(settings, transport):
         patch("proxmox_mcp.cli.create_server") as create,
     ):
         main(["--transport", transport, "--port", "8765"])
-        create.return_value.run.assert_called_once_with(transport=transport)
-        assert create.return_value.settings.port == 8765
+        if transport == "stdio":
+            create.return_value.run.assert_called_once_with(transport="stdio")
+        else:
+            create.return_value.run.assert_called_once_with(
+                transport="streamable-http", host="127.0.0.1", port=8765
+            )
 
 
 def test_cli_warns_insecure_tls(settings, caplog):
