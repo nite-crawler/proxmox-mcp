@@ -2,7 +2,7 @@ from urllib.parse import parse_qs
 
 import httpx
 import pytest
-from mcp.shared.memory import create_connected_server_and_client_session
+from conftest import mcp_session
 
 from proxmox_mcp.client import ProxmoxClient
 from proxmox_mcp.server import create_server
@@ -50,18 +50,17 @@ async def test_protocol_discovery_and_gates(settings, read_only, destructive, ex
         update={"read_only": read_only, "allow_destructive": destructive}
     )
     api = ProxmoxClient(settings)
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
+    async with mcp_session(create_server(settings, lambda: api)) as session:
         tools = (await session.list_tools()).tools
         assert {tool.name for tool in tools} == expected
         for tool in tools:
-            assert tool.annotations.readOnlyHint == (tool.name in READ_TOOLS)
-            assert tool.inputSchema["type"] == "object"
+            assert tool.annotations.read_only_hint == (tool.name in READ_TOOLS)
+            assert tool.input_schema["type"] == "object"
+            assert "ctx" not in tool.input_schema.get("properties", {})
             assert tool.description
         if read_only:
             result = await session.call_tool("start_guest", GUEST)
-            assert result.isError
+            assert result.is_error
     assert api._http.is_closed
 
 
@@ -111,13 +110,11 @@ async def test_read_tools_over_protocol(settings, tool, args, path, query):
         return httpx.Response(200, json={"data": {"test": "result"}})
 
     api = ProxmoxClient(settings, transport=httpx.MockTransport(handler))
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
+    async with mcp_session(create_server(settings, lambda: api)) as session:
         result = await session.call_tool(tool, args)
-        assert not result.isError
+        assert not result.is_error
         expected = {"test": "result"} if tool in {"get_next_vmid", "get_task_log"} else {}
-        assert result.structuredContent == {"data": expected}
+        assert result.structured_content == {"data": expected}
 
 
 @pytest.mark.parametrize("guest_type", ["qemu", "lxc"])
@@ -149,12 +146,10 @@ async def test_guest_write_tools(settings, guest_type, tool, extra, suffix, meth
         return httpx.Response(200, json={"data": TASK})
 
     api = ProxmoxClient(settings, transport=httpx.MockTransport(handler))
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
+    async with mcp_session(create_server(settings, lambda: api)) as session:
         result = await session.call_tool(tool, {**GUEST, "guest_type": guest_type, **extra})
-        assert not result.isError
-        assert result.structuredContent == {"data": TASK}
+        assert not result.is_error
+        assert result.structured_content == {"data": TASK}
 
 
 @pytest.mark.parametrize("guest_type", ["qemu", "lxc"])
@@ -178,10 +173,8 @@ async def test_guest_specific_parameters(settings, guest_type, tool):
         return httpx.Response(200, json={"data": TASK})
 
     api = ProxmoxClient(settings, transport=httpx.MockTransport(handler))
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
-        assert not (await session.call_tool(tool, args)).isError
+    async with mcp_session(create_server(settings, lambda: api)) as session:
+        assert not (await session.call_tool(tool, args)).is_error
 
 
 async def test_backup_endpoint(settings):
@@ -198,14 +191,12 @@ async def test_backup_endpoint(settings):
         return httpx.Response(200, json={"data": TASK})
 
     api = ProxmoxClient(settings, transport=httpx.MockTransport(handler))
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
+    async with mcp_session(create_server(settings, lambda: api)) as session:
         assert not (
             await session.call_tool(
                 "backup_guest", {"node": "pve", "vmid": 100, "storage": "backups"}
             )
-        ).isError
+        ).is_error
 
 
 @pytest.mark.parametrize(
@@ -235,21 +226,17 @@ async def test_invalid_input_never_reaches_api(settings, tool, args):
         pytest.fail("Invalid tool arguments reached the network")
 
     api = ProxmoxClient(settings, transport=httpx.MockTransport(unexpected))
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
-        assert (await session.call_tool(tool, args)).isError
+    async with mcp_session(create_server(settings, lambda: api)) as session:
+        assert (await session.call_tool(tool, args)).is_error
 
 
 async def test_api_failure_becomes_mcp_tool_error(settings):
     api = ProxmoxClient(
         settings, transport=httpx.MockTransport(lambda _: httpx.Response(403, text="SECRET"))
     )
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
+    async with mcp_session(create_server(settings, lambda: api)) as session:
         result = await session.call_tool("list_nodes", {})
-        assert result.isError
+        assert result.is_error
         assert "Permission denied" in result.content[0].text
         assert "SECRET" not in result.content[0].text
 
@@ -263,10 +250,8 @@ async def test_configuration_redaction(settings):
             )
         ),
     )
-    async with create_connected_server_and_client_session(
-        create_server(settings, lambda: api)
-    ) as session:
+    async with mcp_session(create_server(settings, lambda: api)) as session:
         result = await session.call_tool("get_guest_config", GUEST)
-        assert result.structuredContent["data"] == {
+        assert result.structured_content["data"] == {
             "name": "guest",
         }

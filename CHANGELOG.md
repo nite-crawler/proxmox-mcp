@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — Unreleased (SDK 2 migration)
+
+- Migrate to MCP SDK 2.2+ with explicit typed context injection and snake-case
+  SDK model attributes, preserving camelCase JSON wire fields and tool schemas.
+- Move HTTP settings to the SDK 2 app factory, explicitly enforcing bearer auth,
+  DNS-rebinding checks, body caps, stateless mode, and JSON responses.
+- Adapt HTTP pool lifetime to the SDK 2 application lifespan and keep upstream
+  Proxmox networking on the existing HTTPX adapter.
+- Add legacy SDK 1.30.0 CLI compatibility checks for stdio/authenticated HTTP,
+  plus modern discovery tests and forwarded-option security regression tests.
+- Update hashed dependency locks, Python-client example, and migration docs.
+  This branch does not replace the SDK 1-based release on main until reviewed.
+
 ## 0.2.2 — 2026-09-19
 
 - Reject Proxmox token secrets shorter than 16 characters to avoid silent output

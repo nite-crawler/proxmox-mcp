@@ -57,8 +57,10 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("cannot initialize server; check configuration")
     if not settings.verify_ssl:
         logging.warning("TLS verification is disabled; use only with isolated test infrastructure")
-    server.settings.port = args.port
     try:
-        server.run(transport=args.transport)
+        if args.transport == "streamable-http":
+            server.run(transport="streamable-http", host="127.0.0.1", port=args.port)
+        else:
+            server.run(transport="stdio")
     except Exception:
         parser.error("server failed; check configuration and tasks before retrying writes")

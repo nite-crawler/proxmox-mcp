@@ -1,12 +1,13 @@
 import os
 import sys
-from datetime import timedelta
 
 import httpx
+import httpx2
 import pytest
-from mcp import ClientSession, StdioServerParameters
+from mcp import Client, ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import SecretStr
 
 from proxmox_mcp.client import ProxmoxClient
@@ -30,19 +31,20 @@ async def test_real_stdio_subprocess():
     params = StdioServerParameters(command=sys.executable, args=["-m", "proxmox_mcp"], env=env)
     async with (
         stdio_client(params) as (read, write),
-        ClientSession(read, write, read_timeout_seconds=timedelta(seconds=15)) as session,
+        ClientSession(read, write, read_timeout_seconds=15) as session,
     ):
         init = await session.initialize()
-        assert init.serverInfo.name == "proxmox-ve"
+        assert init.server_info.name == "proxmox-ve"
         assert "UPID" in init.instructions
         assert len((await session.list_tools()).tools) == 14
         result = await session.call_tool(
             "get_guest_status", {"node": "../bad", "guest_type": "qemu", "vmid": 100}
         )
-        assert result.isError
+        assert result.is_error
 
 
-async def test_streamable_http_initialize_discover_and_call(http_settings):
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_streamable_http_initialize_discover_and_call(http_settings, mode):
     settings = http_settings
     clients = []
 
@@ -61,24 +63,47 @@ async def test_streamable_http_initialize_discover_and_call(http_settings):
 
     async with (
         server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
+        httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app),
             headers={"Authorization": f"Bearer {HTTP_TOKEN}"},
         ) as http,
-        streamable_http_client(
-            "http://127.0.0.1:8000/mcp",
-            http_client=http,
-        ) as (read, write, _),
-        ClientSession(read, write) as session,
+        Client(
+            streamable_http_client("http://127.0.0.1:8000/mcp", http_client=http),
+            mode=mode,
+        ) as session,
     ):
-        await session.initialize()
+        assert session.protocol_version == ("2026-07-28" if mode == "auto" else "2025-11-25")
         assert len((await session.list_tools()).tools) == 14
         result = await session.call_tool("list_nodes", {})
-        assert not result.isError
-        assert result.structuredContent == {"data": [{"node": "pve", "status": "online"}]}
-        assert not (await session.call_tool("list_nodes", {})).isError
-    assert len(clients) >= 4
+        assert not result.is_error
+        assert result.structured_content == {"data": [{"node": "pve", "status": "online"}]}
+        assert not (await session.call_tool("list_nodes", {})).is_error
+        forged = await session.call_tool(
+            "list_nodes", {"ctx": {"request_context": {"lifespan_context": "attacker"}}}
+        )
+        assert not forged.is_error
+        assert forged.structured_content == result.structured_content
+    assert len(clients) == 1
     assert all(api._http.is_closed for api in clients)
+
+
+async def test_modern_stdio_discovery_and_tool_schema():
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PROXMOX_")}
+    env.update(
+        PROXMOX_URL="https://pve.example.test:8006",
+        PROXMOX_TOKEN_ID="mcp@pve!test",
+        PROXMOX_TOKEN_SECRET="test-only-secret",
+    )
+    params = StdioServerParameters(command=sys.executable, args=["-m", "proxmox_mcp"], env=env)
+    async with Client(params, mode="auto", read_timeout_seconds=15) as client:
+        assert client.protocol_version == "2026-07-28"
+        listing = await client.list_tools()
+        assert len(listing.tools) == 14
+        assert all("ctx" not in tool.input_schema.get("properties", {}) for tool in listing.tools)
+        result = await client.call_tool(
+            "get_guest_status", {"node": "../bad", "guest_type": "qemu", "vmid": 100}
+        )
+        assert result.is_error
 
 
 async def test_http_dns_rebinding_protection(http_settings):
@@ -115,10 +140,13 @@ def test_http_fails_closed_without_token(settings):
     ],
 )
 async def test_http_requires_one_valid_bearer_for_every_method(http_settings, method, headers):
-    def unexpected():
-        pytest.fail("Unauthenticated request entered the MCP lifespan")
+    def unexpected(_):
+        pytest.fail("Unauthenticated request reached Proxmox")
 
-    server = create_server(http_settings, unexpected)
+    server = create_server(
+        http_settings,
+        lambda: ProxmoxClient(http_settings, transport=httpx.MockTransport(unexpected)),
+    )
     app = server.streamable_http_app()
     async with (
         server.session_manager.run(),
@@ -167,4 +195,36 @@ async def test_http_request_size_limit(http_settings):
         ) as client,
     ):
         response = await client.post("http://127.0.0.1:8000/mcp", content=b" " * 2048)
+        assert response.status_code == 413
+
+
+async def test_forwarded_sdk_options_cannot_weaken_http_controls(http_settings):
+    server = create_server(http_settings.model_copy(update={"max_request_bytes": 1024}))
+    app = server.streamable_http_app(
+        host="0.0.0.0",
+        stateless_http=False,
+        json_response=False,
+        max_request_body_size=1024 * 1024,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    async with (
+        server.session_manager.run(),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client,
+    ):
+        url = "http://127.0.0.1:8765/mcp"
+        assert (await client.post(url)).status_code == 401
+        headers = {
+            "Authorization": f"Bearer {HTTP_TOKEN}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        assert (
+            await client.post(url, headers={**headers, "Host": "evil.example"})
+        ).status_code == 421
+        assert (
+            await client.post(url, headers={**headers, "Origin": "https://evil.example"})
+        ).status_code == 403
+        response = await client.post(
+            url, headers={**headers, "Content-Type": "application/json"}, content=b" " * 2048
+        )
         assert response.status_code == 413

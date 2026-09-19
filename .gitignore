@@ -1,4 +1,6 @@
 .venv/
+.venv-sdk2/
+.venv-legacy-client/
 __pycache__/
 *.py[cod]
 *.egg-info/

@@ -19,8 +19,8 @@ async def run(env_file: str) -> None:
         tools = await session.list_tools()
         print("Available tools:", ", ".join(tool.name for tool in tools.tools))
         result = await session.call_tool("list_nodes", {})
-        print(json.dumps(result.model_dump(mode="json"), indent=2))
-        if result.isError:
+        print(json.dumps(result.model_dump(mode="json", by_alias=True), indent=2))
+        if result.is_error:
             raise SystemExit(1)
 
 

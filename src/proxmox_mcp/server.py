@@ -7,8 +7,8 @@ from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 import anyio
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
@@ -26,14 +26,14 @@ GuestType = Literal["qemu", "lxc"]
 Limit = Annotated[int, Field(ge=1, le=500)]
 Offset = Annotated[int, Field(ge=0)]
 UPID = Annotated[str, Field(pattern=r"^UPID:[A-Za-z0-9_.:@!-]+:$", max_length=512)]
-READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
-WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False)
-DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False)
+READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True)
+WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False)
+DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False)
 
 
 def create_server(
     settings: Settings, client_factory: Callable[[], ProxmoxClient] | None = None
-) -> FastMCP:
+) -> SecureMCP:
     limiter = anyio.CapacityLimiter(settings.max_concurrent_requests)
     output_fields = {**DEFAULT_FIELDS, **settings.output_fields}
     secrets: tuple[str, ...] = (settings.token_secret.get_secret_value(),)
@@ -41,9 +41,9 @@ def create_server(
         secrets += (settings.http_token.get_secret_value(),)
 
     @asynccontextmanager
-    async def lifespan(_: FastMCP) -> AsyncIterator[ProxmoxClient]:
-        # A stateless HTTP request has its own lifespan. Never share a client
-        # that another request can close; stdio retains one pool for its session.
+    async def lifespan(_: MCPServer[ProxmoxClient]) -> AsyncIterator[ProxmoxClient]:
+        # SDK 2 owns one lifespan for the HTTP application (or stdio connection).
+        # The pool is shared by HTTP requests and closed only at app shutdown.
         try:
             api = client_factory() if client_factory else ProxmoxClient(settings)
         except Exception:
@@ -72,13 +72,10 @@ def create_server(
             "check existing tasks before repeating a write."
         ),
         lifespan=lifespan,
-        host="127.0.0.1",
-        stateless_http=True,
-        json_response=True,
-        max_request_body_size=settings.max_request_bytes,
     )
 
     async def call(
+        ctx: Context[ProxmoxClient],
         method: Any,
         path: str,
         *,
@@ -90,7 +87,7 @@ def create_server(
         except anyio.WouldBlock:
             raise ToolError("Server busy; retry later. No Proxmox request was submitted.") from None
         try:
-            api = mcp.get_context().request_context.lifespan_context
+            api = ctx.request_context.lifespan_context
             with anyio.fail_after(settings.operation_timeout):
                 data = await api.request(method, path, params)
                 return {
@@ -117,45 +114,54 @@ def create_server(
         return f"/nodes/{node}/{guest_type}/{vmid}"
 
     @mcp.tool(annotations=READ)
-    async def get_version() -> dict[str, Any]:
+    async def get_version(
+        ctx: Context[ProxmoxClient],
+    ) -> dict[str, Any]:
         """Get the connected Proxmox VE version and release."""
-        return await call("GET", "/version", view="version")
+        return await call(ctx, "GET", "/version", view="version")
 
     @mcp.tool(annotations=READ)
-    async def get_cluster_status() -> dict[str, Any]:
+    async def get_cluster_status(
+        ctx: Context[ProxmoxClient],
+    ) -> dict[str, Any]:
         """Get cluster quorum and member status (also useful on standalone nodes)."""
-        return await call("GET", "/cluster/status", view="cluster")
+        return await call(ctx, "GET", "/cluster/status", view="cluster")
 
     @mcp.tool(annotations=READ)
     async def list_resources(
+        ctx: Context[ProxmoxClient],
         resource_type: Literal["vm", "storage", "node", "pool", "sdn"] | None = None,
     ) -> dict[str, Any]:
         """List cluster resources visible to this token; vm includes QEMU and LXC."""
-        return await call("GET", "/cluster/resources", view="resources", type=resource_type)
+        return await call(ctx, "GET", "/cluster/resources", view="resources", type=resource_type)
 
     @mcp.tool(annotations=READ)
-    async def list_nodes() -> dict[str, Any]:
+    async def list_nodes(
+        ctx: Context[ProxmoxClient],
+    ) -> dict[str, Any]:
         """List nodes with uptime, CPU, and memory usage."""
-        return await call("GET", "/nodes", view="nodes")
+        return await call(ctx, "GET", "/nodes", view="nodes")
 
     @mcp.tool(annotations=READ)
-    async def get_node_status(node: Name) -> dict[str, Any]:
+    async def get_node_status(ctx: Context[ProxmoxClient], node: Name) -> dict[str, Any]:
         """Get a node's CPU, memory, swap, load, and uptime."""
-        return await call("GET", f"/nodes/{node}/status", view="node_status")
+        return await call(ctx, "GET", f"/nodes/{node}/status", view="node_status")
 
     @mcp.tool(annotations=READ)
-    async def list_storage(node: Name) -> dict[str, Any]:
+    async def list_storage(ctx: Context[ProxmoxClient], node: Name) -> dict[str, Any]:
         """List storage availability and capacity on a node."""
-        return await call("GET", f"/nodes/{node}/storage", view="storage")
+        return await call(ctx, "GET", f"/nodes/{node}/storage", view="storage")
 
     @mcp.tool(annotations=READ)
     async def list_storage_content(
+        ctx: Context[ProxmoxClient],
         node: Name,
         storage: Name,
         content: Literal["images", "rootdir", "iso", "vztmpl", "backup", "snippets"] | None = None,
     ) -> dict[str, Any]:
         """List volumes, backups, ISOs, or container templates in a storage."""
         return await call(
+            ctx,
             "GET",
             f"/nodes/{node}/storage/{storage}/content",
             view="storage_content",
@@ -163,49 +169,66 @@ def create_server(
         )
 
     @mcp.tool(annotations=READ)
-    async def list_guests(node: Name, guest_type: GuestType) -> dict[str, Any]:
+    async def list_guests(
+        ctx: Context[ProxmoxClient], node: Name, guest_type: GuestType
+    ) -> dict[str, Any]:
         """List QEMU virtual machines or LXC containers on one node."""
-        return await call("GET", f"/nodes/{node}/{guest_type}", view="guests")
+        return await call(ctx, "GET", f"/nodes/{node}/{guest_type}", view="guests")
 
     @mcp.tool(annotations=READ)
-    async def get_guest_status(node: Name, guest_type: GuestType, vmid: VMID) -> dict[str, Any]:
+    async def get_guest_status(
+        ctx: Context[ProxmoxClient], node: Name, guest_type: GuestType, vmid: VMID
+    ) -> dict[str, Any]:
         """Get a guest's power state and current resource usage."""
         return await call(
-            "GET", guest(node, guest_type, vmid) + "/status/current", view="guest_status"
+            ctx, "GET", guest(node, guest_type, vmid) + "/status/current", view="guest_status"
         )
 
     @mcp.tool(annotations=READ)
-    async def get_guest_config(node: Name, guest_type: GuestType, vmid: VMID) -> dict[str, Any]:
+    async def get_guest_config(
+        ctx: Context[ProxmoxClient], node: Name, guest_type: GuestType, vmid: VMID
+    ) -> dict[str, Any]:
         """Read an allowlisted configuration summary; omitted fields are not unset."""
-        return await call("GET", guest(node, guest_type, vmid) + "/config", view="guest_config")
+        return await call(
+            ctx, "GET", guest(node, guest_type, vmid) + "/config", view="guest_config"
+        )
 
     if settings.allow_raw_config:
 
         @mcp.tool(annotations=READ)
         async def get_guest_config_raw(
-            node: Name, guest_type: GuestType, vmid: VMID
+            ctx: Context[ProxmoxClient], node: Name, guest_type: GuestType, vmid: VMID
         ) -> dict[str, Any]:
             """Read full config with known secret keys redacted; other values may be sensitive."""
-            return await call("GET", guest(node, guest_type, vmid) + "/config")
+            return await call(ctx, "GET", guest(node, guest_type, vmid) + "/config")
 
     @mcp.tool(annotations=READ)
-    async def list_snapshots(node: Name, guest_type: GuestType, vmid: VMID) -> dict[str, Any]:
+    async def list_snapshots(
+        ctx: Context[ProxmoxClient], node: Name, guest_type: GuestType, vmid: VMID
+    ) -> dict[str, Any]:
         """List guest snapshots and their parent relationships."""
-        return await call("GET", guest(node, guest_type, vmid) + "/snapshot", view="snapshots")
+        return await call(ctx, "GET", guest(node, guest_type, vmid) + "/snapshot", view="snapshots")
 
     @mcp.tool(annotations=READ)
-    async def list_tasks(node: Name, limit: Limit = 50, start: Offset = 0) -> dict[str, Any]:
+    async def list_tasks(
+        ctx: Context[ProxmoxClient], node: Name, limit: Limit = 50, start: Offset = 0
+    ) -> dict[str, Any]:
         """List recent node tasks; use start and limit for pagination."""
-        return await call("GET", f"/nodes/{node}/tasks", view="tasks", limit=limit, start=start)
+        return await call(
+            ctx, "GET", f"/nodes/{node}/tasks", view="tasks", limit=limit, start=start
+        )
 
     @mcp.tool(annotations=READ)
-    async def get_task_status(node: Name, upid: UPID) -> dict[str, Any]:
+    async def get_task_status(
+        ctx: Context[ProxmoxClient], node: Name, upid: UPID
+    ) -> dict[str, Any]:
         """Poll a task; completion succeeds only if status=stopped and exitstatus=OK."""
         return await call(
-            "GET", f"/nodes/{node}/tasks/{quote(upid, safe='')}/status", view="task_status"
+            ctx, "GET", f"/nodes/{node}/tasks/{quote(upid, safe='')}/status", view="task_status"
         )
 
     async def get_task_log(
+        ctx: Context[ProxmoxClient],
         node: Name,
         upid: UPID,
         limit: Limit = 100,
@@ -213,6 +236,7 @@ def create_server(
     ) -> dict[str, Any]:
         """Read task log lines with pagination. Logs can contain sensitive infrastructure data."""
         return await call(
+            ctx,
             "GET",
             f"/nodes/{node}/tasks/{quote(upid, safe='')}/log",
             limit=limit,
@@ -223,20 +247,25 @@ def create_server(
         mcp.add_tool(get_task_log, annotations=READ)
 
     @mcp.tool(annotations=READ)
-    async def get_next_vmid() -> dict[str, Any]:
+    async def get_next_vmid(
+        ctx: Context[ProxmoxClient],
+    ) -> dict[str, Any]:
         """Find an available VM ID. This does not reserve it; concurrent users may claim it."""
-        return await call("GET", "/cluster/nextid")
+        return await call(ctx, "GET", "/cluster/nextid")
 
     if settings.read_only:
         return mcp
 
     @mcp.tool(annotations=WRITE)
-    async def start_guest(node: Name, guest_type: GuestType, vmid: VMID) -> dict[str, Any]:
+    async def start_guest(
+        ctx: Context[ProxmoxClient], node: Name, guest_type: GuestType, vmid: VMID
+    ) -> dict[str, Any]:
         """Start a VM/container. Returns a UPID to track with get_task_status."""
-        return await call("POST", guest(node, guest_type, vmid) + "/status/start")
+        return await call(ctx, "POST", guest(node, guest_type, vmid) + "/status/start")
 
     @mcp.tool(annotations=DESTRUCTIVE)
     async def shutdown_guest(
+        ctx: Context[ProxmoxClient],
         node: Name,
         guest_type: GuestType,
         vmid: VMID,
@@ -244,18 +273,22 @@ def create_server(
     ) -> dict[str, Any]:
         """Request graceful shutdown, causing downtime. Never falls back to a forced stop."""
         return await call(
+            ctx,
             "POST",
             guest(node, guest_type, vmid) + "/status/shutdown",
             timeout=timeout,
         )
 
     @mcp.tool(annotations=DESTRUCTIVE)
-    async def reboot_guest(node: Name, guest_type: GuestType, vmid: VMID) -> dict[str, Any]:
+    async def reboot_guest(
+        ctx: Context[ProxmoxClient], node: Name, guest_type: GuestType, vmid: VMID
+    ) -> dict[str, Any]:
         """Request a guest reboot, causing downtime. Returns a task UPID."""
-        return await call("POST", guest(node, guest_type, vmid) + "/status/reboot")
+        return await call(ctx, "POST", guest(node, guest_type, vmid) + "/status/reboot")
 
     @mcp.tool(annotations=WRITE)
     async def clone_guest(
+        ctx: Context[ProxmoxClient],
         node: Name,
         guest_type: GuestType,
         vmid: VMID,
@@ -271,6 +304,7 @@ def create_server(
         if storage is not None and not full:
             raise ToolError("Choosing storage requires a full clone.")
         return await call(
+            ctx,
             "POST",
             guest(node, guest_type, vmid) + "/clone",
             newid=new_vmid,
@@ -282,6 +316,7 @@ def create_server(
 
     @mcp.tool(annotations=WRITE)
     async def create_snapshot(
+        ctx: Context[ProxmoxClient],
         node: Name,
         guest_type: GuestType,
         vmid: VMID,
@@ -292,6 +327,7 @@ def create_server(
         if snapshot == "current":
             raise ToolError("The snapshot name 'current' is reserved.")
         return await call(
+            ctx,
             "POST",
             guest(node, guest_type, vmid) + "/snapshot",
             snapname=snapshot,
@@ -300,6 +336,7 @@ def create_server(
 
     @mcp.tool(annotations=DESTRUCTIVE)
     async def backup_guest(
+        ctx: Context[ProxmoxClient],
         node: Name,
         vmid: VMID,
         storage: Name,
@@ -307,6 +344,7 @@ def create_server(
     ) -> dict[str, Any]:
         """Submit a vzdump backup of one guest. Suspend/stop modes can cause downtime."""
         return await call(
+            ctx,
             "POST",
             f"/nodes/{node}/vzdump",
             vmid=vmid,
@@ -317,6 +355,7 @@ def create_server(
 
     @mcp.tool(annotations=DESTRUCTIVE)
     async def migrate_guest(
+        ctx: Context[ProxmoxClient],
         node: Name,
         guest_type: GuestType,
         vmid: VMID,
@@ -328,6 +367,7 @@ def create_server(
             raise ToolError("Migration target must differ from the source node.")
         migration_params: dict[str, Any] = {"online" if guest_type == "qemu" else "restart": online}
         return await call(
+            ctx,
             "POST",
             guest(node, guest_type, vmid) + "/migrate",
             target=target,
@@ -338,12 +378,15 @@ def create_server(
         return mcp
 
     @mcp.tool(annotations=DESTRUCTIVE)
-    async def stop_guest(node: Name, guest_type: GuestType, vmid: VMID) -> dict[str, Any]:
+    async def stop_guest(
+        ctx: Context[ProxmoxClient], node: Name, guest_type: GuestType, vmid: VMID
+    ) -> dict[str, Any]:
         """Force-stop a guest, like pulling its power cable. Unsaved data may be lost."""
-        return await call("POST", guest(node, guest_type, vmid) + "/status/stop")
+        return await call(ctx, "POST", guest(node, guest_type, vmid) + "/status/stop")
 
     @mcp.tool(annotations=DESTRUCTIVE)
     async def delete_snapshot(
+        ctx: Context[ProxmoxClient],
         node: Name,
         guest_type: GuestType,
         vmid: VMID,
@@ -352,10 +395,11 @@ def create_server(
         """Permanently delete one snapshot and its recovery point."""
         if snapshot == "current":
             raise ToolError("The snapshot name 'current' is reserved.")
-        return await call("DELETE", guest(node, guest_type, vmid) + f"/snapshot/{snapshot}")
+        return await call(ctx, "DELETE", guest(node, guest_type, vmid) + f"/snapshot/{snapshot}")
 
     @mcp.tool(annotations=DESTRUCTIVE)
     async def rollback_snapshot(
+        ctx: Context[ProxmoxClient],
         node: Name,
         guest_type: GuestType,
         vmid: VMID,
@@ -365,6 +409,7 @@ def create_server(
         if snapshot == "current":
             raise ToolError("The snapshot name 'current' is reserved.")
         return await call(
+            ctx,
             "POST",
             guest(node, guest_type, vmid) + f"/snapshot/{snapshot}/rollback",
         )

@@ -43,7 +43,9 @@ storage capabilities vary. This server never modifies user/token permissions.
   exactly one Authorization header on every request. Comparisons use constant-time
   comparison; tokens in query parameters are not accepted. Unauthenticated requests
   are rejected before MCP processing. HTTP refuses to start without a token.
-  SDK Host/Origin checks remain enabled. Keep the token out of shell command lines
+  SDK Host/Origin checks are explicitly enabled with IPv4-loopback/localhost
+  allowlists; app-factory options cannot disable them or raise the configured
+  body-size cap. Keep the token out of shell command lines
   and shared client configs; supply it through your client's secret/environment support.
   Any local process able to read the token can impersonate its holder.
 - All clients share the configured Proxmox token identity. This is not a multi-tenant service.
