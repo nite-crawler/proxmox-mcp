@@ -54,12 +54,15 @@ class ProxmoxClient:
         path: str,
         params: Parameters | None = None,
     ) -> Any:
-        if method != "GET" and self.settings.read_only:
+        audit_id = uuid4().hex if method != "GET" else None
+        if audit_id is not None and self.settings.read_only:
+            self._audit(audit_id, "blocked", method=method, reason="read_only")
             raise ProxmoxError("Writes are disabled; set PROXMOX_READ_ONLY=false and restart.")
         # Tool paths are constructed internally; never expose a raw API proxy.
         if not path.startswith("/") or any(x in path for x in ("..", "//", "?", "#", "\\")):
+            if audit_id:
+                self._audit(audit_id, "blocked", method=method, reason="invalid_path")
             raise ProxmoxError("Invalid API path.")
-        audit_id = uuid4().hex if method != "GET" else None
         started = time.monotonic()
         outcome = "outcome_unknown"
         if audit_id:

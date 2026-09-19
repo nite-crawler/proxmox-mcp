@@ -25,7 +25,7 @@ async def test_real_stdio_subprocess():
     env.update(
         PROXMOX_URL="https://pve.example.test:8006",
         PROXMOX_TOKEN_ID="mcp@pve!test",
-        PROXMOX_TOKEN_SECRET="test-only",
+        PROXMOX_TOKEN_SECRET="test-only-secret",
     )
     params = StdioServerParameters(command=sys.executable, args=["-m", "proxmox_mcp"], env=env)
     async with (

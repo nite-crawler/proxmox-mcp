@@ -6,6 +6,11 @@ token's ACLs must permit an operation. For monitoring, grant `PVEAuditor` only o
 the paths the client needs; `/` with propagation grants broad inventory access.
 Some tools may return empty lists when the token cannot see the requested objects.
 
+The Proxmox token secret must contain at least 16 printable ASCII characters with
+no whitespace. This catches short or truncated configuration values before they
+can corrupt output through credential redaction; it is not an entropy check.
+Use the secret issued by Proxmox, not a password you invent for this service.
+
 For write access, create a custom role or use appropriate built-in roles scoped
 to the relevant guests and storage. Do not solve every 403 by granting Administrator.
 Common privileges to evaluate against your installed API viewer include:
@@ -79,8 +84,13 @@ Set `PROXMOX_OUTPUT_FIELDS` to a JSON object to replace particular view lists:
 PROXMOX_OUTPUT_FIELDS='{"guest_config":["cores","memory"],"snapshots":["name","snaptime"]}'
 ```
 
-An empty list suppresses all fields in that view. Unspecified views retain their
-defaults. Exact field names only: no wildcard or dotted-path selectors. See
+An empty list suppresses all fields except in the `task_status` view: overrides
+for that view must include both `status` and `exitstatus`, or startup fails.
+This prevents configuration from hiding evidence needed to verify task completion.
+Fields missing from an upstream response are not fabricated; a missing status or
+exit status means success is unverified, even if the task is stopped.
+Unspecified views retain their defaults. Exact field names only: no wildcard or
+dotted-path selectors. See
 [the complete default lists](../src/proxmox_mcp/output.py). Valid view names are
 `version`, `cluster`, `resources`, `nodes`, `node_status`, `storage`,
 `storage_content`, `guests`, `guest_status`, `guest_config`, `snapshots`, `tasks`,
@@ -118,7 +128,11 @@ task completed. `outcome_unknown` means no confirmed acceptance: inspect any
 recorded HTTP status and Proxmox task history before retrying. Timeouts, network
 errors, and cancellation all produce this conservative outcome. A process crash
 may leave only an attempt record. Calls blocked before the API client are not
-recorded by this write audit.
+recorded by this write audit. Within the API client, the read-only and path guards
+emit a single `blocked` event containing a correlation ID, method, and fixed refusal
+reason (`read_only` or `invalid_path`), without submitting a request. Refused paths
+and parameters are omitted because they have not passed validation. Calls to
+unregistered MCP tools do not reach this layer and require MCP-host logging.
 
 Parameters, response bodies, raw exception messages, and configured credentials
 are excluded from audit records. Endpoints still reveal node/guest/snapshot names;

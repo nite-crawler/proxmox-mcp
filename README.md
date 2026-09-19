@@ -18,7 +18,7 @@ HTTP are supported through the official MCP Python SDK.
 
 ## Project status
 
-Community release, version 0.2.1. Automated tests exercise the API adapter,
+Community release, version 0.2.2. Automated tests exercise the API adapter,
 MCP discovery and tool calls, a real stdio subprocess, and Streamable HTTP. Proxmox
 API responses are mocked: **a live Proxmox cluster has not yet been validated**.
 Client examples use standard MCP configuration; individual desktop apps have not
@@ -204,7 +204,7 @@ The server never implicitly loads a `.env` from the working directory.
 | --- | --- | --- |
 | `PROXMOX_URL` | Required | HTTPS origin, e.g. `https://pve.example.com:8006`; `/api2/json` suffix accepted |
 | `PROXMOX_TOKEN_ID` | Required | Full ID, e.g. `mcp@pve!assistant` |
-| `PROXMOX_TOKEN_SECRET` | Required | API token secret |
+| `PROXMOX_TOKEN_SECRET` | Required | API token secret; at least 16 printable ASCII characters, no whitespace |
 | `PROXMOX_VERIFY_SSL` | `true` | Certificate and hostname verification |
 | `PROXMOX_CA_BUNDLE` | System trust | PEM CA bundle path |
 | `PROXMOX_TIMEOUT` | `30` | HTTP timeout in seconds, greater than 0 and at most 300 |

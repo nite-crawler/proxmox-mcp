@@ -3,6 +3,7 @@ import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from proxmox_mcp.client import ProxmoxClient
+from proxmox_mcp.config import Settings
 from proxmox_mcp.output import filter_output, redact
 from proxmox_mcp.server import create_server
 
@@ -127,3 +128,37 @@ def test_nested_secrets_and_literal_credentials_redacted():
 def test_known_sensitive_fields_cannot_be_allowlisted_around_redaction(key):
     assert filter_output({key: "PRIVATE"}, (key,), ()) == {key: "[REDACTED]"}
     assert redact({"nested": [{key: "PRIVATE"}]}, ()) == {"nested": [{key: "[REDACTED]"}]}
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"status": "stopped", "exitstatus": "ERROR"},
+        {"status": "stopped", "exitstatus": "OK"},
+        {"status": "running"},
+        {"status": "stopped"},
+        {"exitstatus": "OK"},
+        {},
+    ],
+)
+async def test_required_task_fields_preserved_without_inventing_upstream_values(settings, data):
+    settings = Settings.model_validate(
+        {**settings.model_dump(), "output_fields": {"task_status": ["status", "exitstatus"]}}
+    )
+    api = ProxmoxClient(
+        settings,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"data": {**data, "user": "PRIVATE"}})
+        ),
+    )
+    async with create_connected_server_and_client_session(
+        create_server(settings, lambda: api)
+    ) as session:
+        init = await session.initialize()
+        assert "success is unverified" in init.instructions
+        result = await session.call_tool(
+            "get_task_status", {"node": "pve", "upid": "UPID:pve:task:"}
+        )
+        assert not result.isError
+        assert result.structuredContent == {"data": data}
+        assert "PRIVATE" not in result.content[0].text

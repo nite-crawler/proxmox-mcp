@@ -56,6 +56,8 @@ class Settings(BaseSettings):
             for field in fields
         ):
             raise ValueError("output fields must be exact field names, not wildcards or paths")
+        if "task_status" in value and not {"status", "exitstatus"}.issubset(value["task_status"]):
+            raise ValueError("task_status output fields must include status and exitstatus")
         return value
 
     @field_validator("url")
@@ -87,8 +89,15 @@ class Settings(BaseSettings):
     @classmethod
     def validate_secret(cls, value: SecretStr) -> SecretStr:
         raw = value.get_secret_value()
-        if not raw or not raw.isascii() or not raw.isprintable() or any(c.isspace() for c in raw):
-            raise ValueError("token secret must be nonempty printable ASCII without whitespace")
+        if (
+            len(raw) < 16
+            or not raw.isascii()
+            or not raw.isprintable()
+            or any(c.isspace() for c in raw)
+        ):
+            raise ValueError(
+                "token secret must be at least 16 printable ASCII characters without whitespace"
+            )
         return value
 
     @model_validator(mode="after")

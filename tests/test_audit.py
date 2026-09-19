@@ -110,7 +110,7 @@ from proxmox_mcp.http import SecureMCP
 # Simulate an embedding host that already installed a restrictive handler.
 logging.basicConfig(level=logging.CRITICAL)
 settings = Settings(url="https://pve.example.test", token_id="mcp@pve!test",
-                    token_secret="SYNTHETIC_ONLY", read_only=False, allow_destructive=True)
+                    token_secret="SYNTHETIC_ONLY_SECRET", read_only=False, allow_destructive=True)
 async def requests():
     api = ProxmoxClient(settings, transport=httpx.MockTransport(
         lambda _: httpx.Response(200, json={"data": None})))
@@ -137,3 +137,30 @@ with patch("proxmox_mcp.cli.Settings", return_value=settings), patch.object(Secu
     assert len({e["request_id"] for e in events}) == 2
     assert sum(e["event"] == "api_accepted" for e in events) == 2
     assert "SYNTHETIC_ONLY" not in result.stderr
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "DELETE"])
+@pytest.mark.parametrize("read_only", [True, False])
+async def test_refused_writes_audited_without_network_or_unvalidated_input(
+    settings, caplog, method, read_only
+):
+    def unexpected(_):
+        pytest.fail("Blocked request reached Proxmox")
+
+    api = ProxmoxClient(
+        settings.model_copy(update={"read_only": read_only}),
+        transport=httpx.MockTransport(unexpected),
+    )
+    path = "/nodes/pve/qemu/100/status/stop" if read_only else "/../PRIVATE\nINJECTED"
+    with pytest.raises(ProxmoxError):
+        await api.request(method, path, {"password": "PRIVATE_PARAM"})
+    await api.close()
+    events = records(caplog)
+    assert len(events) == 1
+    assert events[0]["event"] == "blocked"
+    assert events[0]["method"] == method
+    assert events[0]["reason"] == ("read_only" if read_only else "invalid_path")
+    assert len(events[0]["request_id"]) == 32
+    assert "PRIVATE" not in caplog.text
+    assert "INJECTED" not in caplog.text
+    assert "path" not in events[0]

@@ -39,6 +39,19 @@ def test_cli_does_not_leak_invalid_secret(monkeypatch, capsys):
     assert "SUPERSECRET" not in capsys.readouterr().err
 
 
+def test_cli_rejects_short_secret_without_echoing_it(monkeypatch, capsys):
+    monkeypatch.setenv("PROXMOX_URL", "https://pve.example.test")
+    monkeypatch.setenv("PROXMOX_TOKEN_ID", "mcp@pve!test")
+    monkeypatch.setenv("PROXMOX_TOKEN_SECRET", "short-SENSITIVE")
+    with pytest.raises(SystemExit) as exc:
+        main([])
+    assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert "at least 16" in captured.err
+    assert "short-SENSITIVE" not in captured.err
+
+
 @pytest.mark.parametrize("transport", ["stdio", "streamable-http"])
 def test_cli_runs_selected_transport(settings, transport):
     settings = settings.model_copy(update={"http_token": SecretStr("a" * 43)})

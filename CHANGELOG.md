@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2 — 2026-09-19
+
+- Reject Proxmox token secrets shorter than 16 characters to avoid silent output
+  and audit-record corruption from substring redaction of misconfigured secrets.
+- Audit write refusals from the independent read-only and path guards without
+  logging unvalidated paths or parameters and without submitting network requests.
+- Reject `task_status` output overrides that omit `status` or `exitstatus`;
+  explicitly treat missing upstream completion fields as unverified success.
+- Configuration compatibility: short secrets and incomplete task-status overrides
+  now fail validation. SDK 2.x remains a separately tested migration.
+
 ## 0.2.1 — 2026-09-19
 
 - Record write attempts, HTTP response status, and acceptance/unknown outcomes

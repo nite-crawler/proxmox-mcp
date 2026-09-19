@@ -47,10 +47,27 @@ def test_reject_invalid_token_id(token_id):
         make_settings(token_id=token_id)
 
 
-@pytest.mark.parametrize("secret", ["", "secret\r\nHeader:value", "has space", "é", "\x00", "\x7f"])
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "",
+        "a",
+        "a" * 15,
+        "secret\r\nHeader:value",
+        "has space" * 3,
+        "é" * 16,
+        "\x00" * 16,
+        "\x7f" * 16,
+    ],
+)
 def test_reject_invalid_secret(secret):
     with pytest.raises(ValidationError):
         make_settings(token_secret=secret)
+
+
+@pytest.mark.parametrize("secret", ["x" * 16, "00000000-0000-4000-8000-000000000001"])
+def test_valid_secret_length_boundaries(secret):
+    assert make_settings(token_secret=secret).token_secret.get_secret_value() == secret
 
 
 @pytest.mark.parametrize(
@@ -90,7 +107,7 @@ def test_env_file_explicit_and_environment_wins(tmp_path, monkeypatch):
     config = tmp_path / ".env"
     config.write_text(
         "PROXMOX_URL=https://pve.example.test:8006\n"
-        "PROXMOX_TOKEN_ID=mcp@pve!test\nPROXMOX_TOKEN_SECRET=test-only\n"
+        "PROXMOX_TOKEN_ID=mcp@pve!test\nPROXMOX_TOKEN_SECRET=test-only-secret\n"
         "PROXMOX_READ_ONLY=false\n"
     )
     monkeypatch.chdir(tmp_path)
@@ -108,3 +125,17 @@ def test_output_policy_from_environment(monkeypatch):
     assert settings.output_fields == {"guest_config": ("name", "cores")}
     assert settings.allow_raw_config
     assert not settings.allow_task_logs
+
+
+@pytest.mark.parametrize("fields", [[], ["status"], ["exitstatus"], ["Status", "exitstatus"]])
+def test_task_status_policy_cannot_hide_completion_fields(fields):
+    with pytest.raises(ValidationError, match="must include status and exitstatus"):
+        make_settings(output_fields={"task_status": fields})
+
+
+def test_task_status_policy_environment_validation(monkeypatch):
+    monkeypatch.setenv("PROXMOX_OUTPUT_FIELDS", '{"task_status":["status"]}')
+    with pytest.raises(ValidationError, match="must include status and exitstatus"):
+        make_settings()
+    monkeypatch.setenv("PROXMOX_OUTPUT_FIELDS", '{"task_status":["status","exitstatus"]}')
+    assert make_settings().output_fields["task_status"] == ("status", "exitstatus")
