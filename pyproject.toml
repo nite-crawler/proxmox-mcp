@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.27,<2"]
+requires = ["hatchling>=1.32.4,<2"]
 build-backend = "hatchling.build"
 
 [project]
@@ -32,7 +32,7 @@ dependencies = [
 dev = [
   "pytest>=8,<10", "pytest-asyncio>=1,<2", "pytest-cov>=6,<8",
   "ruff>=0.16,<1", "mypy>=1.15,<3", "build>=1.2,<2", "pip-audit>=2.9,<3",
-  "hatchling>=1.27,<2",
+  "hatchling>=1.32.4,<2",
   "uv==0.12.17",
   "editables>=0.5,<1",
 ]
@@ -41,7 +41,7 @@ dev = [
 proxmox-mcp = "proxmox_mcp.cli:main"
 
 [dependency-groups]
-build = ["hatchling>=1.27,<2", "build>=1.2,<2"]
+build = ["hatchling>=1.32.4,<2", "build>=1.2,<2"]
 
 [project.urls]
 Homepage = "https://github.com/nite-crawler/proxmox-mcp"
