@@ -33,7 +33,7 @@ dev = [
   "pytest>=8,<10", "pytest-asyncio>=1,<2", "pytest-cov>=6,<8",
   "ruff>=0.16,<1", "mypy>=1.15,<3", "build>=1.2,<2", "pip-audit>=2.9,<3",
   "hatchling>=1.27,<2",
-  "uv==0.12.17",
+  "uv==0.12.18",
   "editables>=0.5,<1",
 ]
 
