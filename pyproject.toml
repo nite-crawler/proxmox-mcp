@@ -25,7 +25,7 @@ classifiers = [
 ]
 dependencies = [
   "mcp>=1.30,<2", "httpx>=0.28.1,<1", "pydantic-settings>=2.7,<3",
-  "pydantic>=2.12,<3", "anyio>=4.5,<5", "starlette>=0.48,<2",
+  "pydantic>=2.12,<3", "anyio>=4.5,<5", "starlette>=1.7.0,<2",
 ]
 
 [project.optional-dependencies]
