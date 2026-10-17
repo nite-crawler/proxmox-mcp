@@ -1,4 +1,4 @@
-FROM python:3.13-slim@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0 AS builder
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS builder
 WORKDIR /build
 COPY requirements.lock requirements-build.lock ./
 RUN python -m pip install --no-cache-dir --require-hashes --only-binary=:all: -r requirements-build.lock
@@ -9,7 +9,7 @@ RUN python -m build --wheel --no-isolation && /opt/venv/bin/python -m pip instal
 # Installers and their vendored dependencies are not needed at runtime.
 RUN /opt/venv/bin/python -m pip uninstall --yes pip
 
-FROM python:3.13-slim@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 RUN python -m pip uninstall --yes pip && rm -rf /usr/local/lib/python3.13/ensurepip
 RUN useradd --create-home --uid 10001 mcp
 COPY --from=builder /opt/venv /opt/venv
